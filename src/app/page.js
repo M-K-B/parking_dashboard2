@@ -1,21 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
+import { GoogleMap, Marker, InfoWindow, useLoadScript } from "@react-google-maps/api";
 import dynamic from "next/dynamic";
 import { supabase } from "./lib/db.js";
 
 const LoginScreen = dynamic(() => import("./login_screen"), { ssr: false });
 
-const mapContainerStyle = {
-  width: "100%",
-  height: "100vh",
-};
-
-const center = {
-  lat: 51.5074,
-  lng: -0.1278,
-};
+const mapContainerStyle = { width: "100%", height: "100vh" };
+const defaultCenter = { lat: 51.5074, lng: -0.1278 };
 
 const editableFields = [
   "Road Name",
@@ -30,6 +23,15 @@ const editableFields = [
   "Valid Parking Permits",
 ];
 
+const restrictionColors = {
+  "Pay and Display": "blue",
+  "Permit Holders Only": "green",
+  "Disabled Bays": "yellow",
+  "Double Yellow Lines": "red",
+  "Single Yellow Lines": "orange",
+  // Add more types if needed
+};
+
 export default function AdminMap() {
   const { isLoaded } = useLoadScript({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY,
@@ -40,8 +42,10 @@ export default function AdminMap() {
   const [pendingData, setPendingData] = useState([]);
   const [formState, setFormState] = useState({});
   const [selectedItemId, setSelectedItemId] = useState(null);
-  const [mapCenter, setMapCenter] = useState(center);
+  const [selectedMarker, setSelectedMarker] = useState(null);
+  const [mapCenter, setMapCenter] = useState(defaultCenter);
   const [filter, setFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
 
   useEffect(() => {
     const checkUser = async () => {
@@ -82,30 +86,26 @@ export default function AdminMap() {
       subscription.unsubscribe();
     };
   }, []);
-  
 
   useEffect(() => {
     if (role === "admin") {
-      fetchAllMapData();    // ✅ Load all map data
-      fetchPendingData();   // ✅ Load pending approvals
+      fetchAllMapData();
+      fetchPendingData();
     }
   }, [role]);
 
   async function fetchAllMapData() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-  
       if (!session?.access_token) {
         console.error("No access token found.");
         return;
       }
-  
+
       const res = await fetch("https://funny-bear-93.deno.dev/api/v1/getAllData", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { Authorization: `Bearer ${session.access_token}` },
       });
-  
+
       const data = await res.json();
       setAllData(data || []);
     } catch (err) {
@@ -119,7 +119,7 @@ export default function AdminMap() {
         .from("parking_restrictions")
         .select("*")
         .eq("status", "pending");
-  
+
       if (error) {
         console.error("Error fetching pending data", error);
       } else {
@@ -129,24 +129,28 @@ export default function AdminMap() {
       console.error("Unexpected error fetching pending data", err);
     }
   }
-  
+
   async function updateData(id, changes) {
     await supabase.from("parking_restrictions").update(changes).eq("id", id);
     setSelectedItemId(null);
-    fetchPendingData(); // Only refresh pending list
+    fetchPendingData();
   }
-  
 
   async function deleteData(id) {
     await supabase.from("parking_restrictions").delete().eq("id", id);
     setSelectedItemId(null);
-    fetchPendingData(); // Only refresh pending list
+    fetchPendingData();
   }
-  
 
-  const filtered = filter
-    ? pendingData.filter((item) => item.Postcode?.toLowerCase().includes(filter.toLowerCase()))
+  const filteredPending = filter
+    ? pendingData.filter((item) =>
+        item.Postcode?.toLowerCase().includes(filter.toLowerCase())
+      )
     : pendingData;
+
+  const filteredAllData = typeFilter
+    ? allData.filter((item) => item["Restriction Type"] === typeFilter)
+    : allData;
 
   if (!isLoaded) return <div>Loading map...</div>;
   if (!role) return <LoginScreen onLogin={() => window.location.reload()} />;
@@ -156,6 +160,7 @@ export default function AdminMap() {
     <div className="dashboard">
       <aside className="sidebar">
         <h2>Pending Approvals</h2>
+
         <input
           type="text"
           placeholder="Filter by postcode"
@@ -163,8 +168,10 @@ export default function AdminMap() {
           onChange={(e) => setFilter(e.target.value)}
           className="filter-input"
         />
-        {filtered.length === 0 && <p>No pending records.</p>}
-        {filtered.map((item) => (
+
+        {filteredPending.length === 0 && <p>No pending records.</p>}
+
+        {filteredPending.map((item) => (
           <div
             key={item.id}
             className="pending-card"
@@ -223,17 +230,70 @@ export default function AdminMap() {
       </aside>
 
       <main className="map-container">
+        {/* Filter Buttons */}
+        <div style={{ padding: "10px", background: "#fff", zIndex: 10 }}>
+          <button onClick={() => setTypeFilter("")}>Show All</button>
+          {[...new Set(allData.map(item => item["Restriction Type"]))].map((type) => (
+            <button
+              key={type}
+              onClick={() => setTypeFilter(type)}
+              style={{
+                marginLeft: "5px",
+                backgroundColor: restrictionColors[type] || "gray",
+                color: "white",
+              }}
+            >
+              {type}
+            </button>
+          ))}
+        </div>
+
+        {/* Map */}
         <GoogleMap
           mapContainerStyle={mapContainerStyle}
           zoom={13}
           center={mapCenter}
         >
-          {allData.map((item) => (
+          {filteredAllData.map((item) => (
             <Marker
               key={item.id}
               position={{ lat: item.Latitude, lng: item.Longitude }}
+              onClick={() => setSelectedMarker(item)}
+              icon={{
+                path: window.google.maps.SymbolPath.CIRCLE,
+                scale: 7,
+                fillColor: restrictionColors[item["Restriction Type"]] || "gray",
+                fillOpacity: 1,
+                strokeWeight: 1,
+              }}
             />
           ))}
+
+          {selectedMarker && (
+            <InfoWindow
+              position={{
+                lat: selectedMarker.Latitude,
+                lng: selectedMarker.Longitude,
+              }}
+              onCloseClick={() => setSelectedMarker(null)}
+            >
+              <div style={{ maxWidth: "250px" }}>
+                <h3>{selectedMarker["Road Name"]}</h3>
+                <p><strong>Zone:</strong> {selectedMarker["Controlled Parking Zone"]}</p>
+                <p><strong>Type:</strong> {selectedMarker["Restriction Type"]}</p>
+                <p><strong>Times:</strong> {selectedMarker["Times Of Operation"]}</p>
+                <p><strong>Max Stay:</strong> {selectedMarker["Maximum Stay"]}</p>
+                <p><strong>Postcode:</strong> {selectedMarker["Postcode"]}</p>
+                {selectedMarker["Image URL"] && (
+                  <img
+                    src={selectedMarker["Image URL"]}
+                    alt="Parking sign"
+                    style={{ width: "100%", marginTop: "5px" }}
+                  />
+                )}
+              </div>
+            </InfoWindow>
+          )}
         </GoogleMap>
       </main>
     </div>
