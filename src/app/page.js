@@ -83,8 +83,6 @@ export default function AdminMap() {
     };
   }, []);
   
-    return () => subscription.unsubscribe();
-  }, []);
 
   useEffect(() => {
     if (role === "admin") {
