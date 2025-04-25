@@ -93,7 +93,19 @@ export default function AdminMap() {
 
   async function fetchAllMapData() {
     try {
-      const res = await fetch("https://funny-bear-93.deno.dev/api/v1/getAllData");
+      const { data: { session } } = await supabase.auth.getSession();
+  
+      if (!session?.access_token) {
+        console.error("No access token found.");
+        return;
+      }
+  
+      const res = await fetch("https://funny-bear-93.deno.dev/api/v1/getAllData", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+  
       const data = await res.json();
       setAllData(data || []);
     } catch (err) {
