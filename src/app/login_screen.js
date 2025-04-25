@@ -1,21 +1,25 @@
 "use client";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "./page.js";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_KEY
-);
+
 
 export default function LoginScreen({ onLogin }) {
   const handleGoogleLogin = async () => {
+    const siteUrl =
+      typeof window !== "undefined"
+        ? window.location.origin
+        : process.env.NEXT_PUBLIC_SITE_URL; // fallback for safety
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: process.env.NEXT_PUBLIC_SITE_URL,
+        redirectTo: siteUrl,
       },
     });
 
-    if (!error) onLogin();
+    if (!error && typeof window !== "undefined") {
+      window.location.href = "/";
+    }
   };
 
   return (

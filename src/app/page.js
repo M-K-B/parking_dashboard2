@@ -5,7 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
 import dynamic from "next/dynamic";
 
-const supabase = createClient(
+export const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_KEY
 );
