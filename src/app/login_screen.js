@@ -1,5 +1,6 @@
 "use client";
-import { supabase } from "./page.js";
+
+import { supabase } from "./lib/db.js";
 
 
 

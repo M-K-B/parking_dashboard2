@@ -4,11 +4,8 @@ import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
 import dynamic from "next/dynamic";
+import { supabase } from "./lib/db.js";
 
-export const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_KEY
-);
 
 const LoginScreen = dynamic(() => import("./login_screen"), { ssr: false });
 
@@ -89,15 +86,14 @@ export default function AdminMap() {
         setRole(null);
       }
   
-      // Clean the hash in the URL
-      if (window?.location?.hash) {
+      // Remove the hash fragment from OAuth redirect
+      if (typeof window !== "undefined" && window.location.hash) {
         window.history.replaceState(null, null, window.location.pathname);
       }
     };
   
     checkUser();
   
-    // 🔁 Subscribe to future auth changes (e.g. after login redirect)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -108,7 +104,6 @@ export default function AdminMap() {
   
     return () => subscription.unsubscribe();
   }, []);
-  
   async function fetchData() {
     const { data, error } = await supabase
       .from("parking_restrictions")
