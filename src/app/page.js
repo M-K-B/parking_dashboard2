@@ -70,6 +70,7 @@ export default function AdminMap() {
   }, []);
   
 
+
   useEffect(() => {
     if (role === "admin") fetchData();
   }, [role]);
