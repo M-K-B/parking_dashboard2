@@ -86,7 +86,8 @@ export default function AdminMap() {
 
   useEffect(() => {
     if (role === "admin") {
-      fetchData();
+      fetchAllMapData();    // ✅ Load all map data
+      fetchPendingData();   // ✅ Load pending approvals
     }
   }, [role]);
 
