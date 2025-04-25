@@ -72,33 +72,43 @@ export default function AdminMap() {
   }, []);
 
   useEffect(() => {
-    if (role === "admin") {
-      fetchData();
-      const channel = supabase
-        .channel("parking_restrictions")
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "parking_restrictions" },
-          (payload) => {
-            if (payload.eventType === "DELETE" || payload.eventType === "UPDATE") {
-              fetchData();
-              if (payload.old?.id === selectedItemId) {
-                setSelectedItemId(null);
-              }
-            }
-            if (payload.eventType === "INSERT") {
-              fetchData();
-            }
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    }
-  }, [role]);
-
+    const checkUser = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+  
+      if (session?.user) {
+        const { data } = await supabase
+          .from("users")
+          .select("role")
+          .eq("id", session.user.id)
+          .single();
+  
+        setRole(data?.role || null);
+      } else {
+        setRole(null);
+      }
+  
+      // Clean the hash in the URL
+      if (window?.location?.hash) {
+        window.history.replaceState(null, null, window.location.pathname);
+      }
+    };
+  
+    checkUser();
+  
+    // 🔁 Subscribe to future auth changes (e.g. after login redirect)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        checkUser();
+      }
+    });
+  
+    return () => subscription.unsubscribe();
+  }, []);
+  
   async function fetchData() {
     const { data, error } = await supabase
       .from("parking_restrictions")

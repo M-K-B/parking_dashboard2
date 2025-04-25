@@ -17,9 +17,7 @@ export default function LoginScreen({ onLogin }) {
       },
     });
 
-    if (!error && typeof window !== "undefined") {
-      window.location.href = "/";
-    }
+    
   };
 
   return (
