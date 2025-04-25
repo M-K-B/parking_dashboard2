@@ -47,22 +47,29 @@ export default function AdminMap() {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
-        const { data: user } = await supabase
+        const { data: user, error } = await supabase
           .from("users")
           .select("role")
           .eq("id", session.user.id)
           .single();
-        setRole(user?.role || null);
+  
+        if (error) {
+          console.error("Error fetching user role:", error);
+          setRole(null);
+        } else {
+          setRole(user?.role || null);
+        }
       } else {
         setRole(null);
       }
+  
       if (typeof window !== "undefined" && window.location.hash) {
         window.history.replaceState(null, null, window.location.pathname);
       }
     };
-
+  
     checkUser();
-
+  
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         checkUser();
@@ -70,7 +77,12 @@ export default function AdminMap() {
         setRole(null);
       }
     });
-
+  
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+  
     return () => subscription.unsubscribe();
   }, []);
 
@@ -80,29 +92,46 @@ export default function AdminMap() {
     }
   }, [role]);
 
-  async function fetchData() {
+  async function fetchAllMapData() {
     try {
       const res = await fetch("https://funny-bear-93.deno.dev/api/v1/getAllData");
       const data = await res.json();
-      console.log("Fetched data:", data);
       setAllData(data || []);
-      setPendingData((data || []).filter(item => item.status === "pending"));
     } catch (err) {
       console.error("Error fetching parking data", err);
     }
   }
 
+  async function fetchPendingData() {
+    try {
+      const { data, error } = await supabase
+        .from("parking_restrictions")
+        .select("*")
+        .eq("status", "pending");
+  
+      if (error) {
+        console.error("Error fetching pending data", error);
+      } else {
+        setPendingData(data || []);
+      }
+    } catch (err) {
+      console.error("Unexpected error fetching pending data", err);
+    }
+  }
+  
   async function updateData(id, changes) {
     await supabase.from("parking_restrictions").update(changes).eq("id", id);
     setSelectedItemId(null);
-    fetchData();
+    fetchPendingData(); // Only refresh pending list
   }
+  
 
   async function deleteData(id) {
     await supabase.from("parking_restrictions").delete().eq("id", id);
     setSelectedItemId(null);
-    fetchData();
+    fetchPendingData(); // Only refresh pending list
   }
+  
 
   const filtered = filter
     ? pendingData.filter((item) => item.Postcode?.toLowerCase().includes(filter.toLowerCase()))
