@@ -1,7 +1,6 @@
 // LoginScreen.jsx
 "use client";
-import { useEffect } from "react";
-import { createClient } from "@supabase/supabase-js";
+
 import { supabase } from "./page.js";
 
 // Initialize Supabase client
@@ -11,10 +10,15 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_KEY;
 
 export default function LoginScreen({ onLogin }) {
   const handleGoogleLogin = async () => {
+    const redirectTo = process.env.NEXT_PUBLIC_SITE_URL;
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: window.location.origin },
+      options: {
+        redirectTo,
+      },
     });
+
     if (!error) onLogin();
   };
 
