@@ -48,26 +48,27 @@ export default function AdminMap() {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
-        const { data } = await supabase
+        const { data: user } = await supabase
           .from("users")
           .select("role")
           .eq("id", session.user.id)
           .single();
-        setRole(data?.role || null);
+        setRole(user?.role ?? false);
       } else {
-        setRole(null);
-      }
-      if (window.location.hash) {
-        window.history.replaceState(null, null, window.location.pathname);
+        setRole(false);
       }
     };
-
+  
     checkUser();
+  
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) checkUser();
+      if (session) checkUser();
+      else setRole(false);
     });
+  
     return () => subscription.unsubscribe();
   }, []);
+  
 
   useEffect(() => {
     if (role === "admin") fetchData();
