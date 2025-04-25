@@ -1,14 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react"
+import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
-import LoginScreen from "./login_screen";
+import dynamic from "next/dynamic";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_KEY;
-const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-export const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_KEY
+);
+
+const LoginScreen = dynamic(() => import("./login_screen"), { ssr: false });
 
 const mapContainerStyle = {
   width: "75vw",
@@ -19,8 +21,6 @@ const center = {
   lat: 51.5074,
   lng: -0.1278,
 };
-
-const google_key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
 const editableFields = [
   "Road Name",
@@ -37,7 +37,7 @@ const editableFields = [
 
 export default function AdminMap() {
   const { isLoaded } = useLoadScript({
-    googleMapsApiKey: google_key,
+    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY,
   });
 
   const [role, setRole] = useState(null);
@@ -48,7 +48,27 @@ export default function AdminMap() {
   const [mapCenter, setMapCenter] = useState(center);
 
   useEffect(() => {
-    checkUser();
+    const init = async () => {
+      // Clear OAuth hash from URL
+      if (window?.location?.hash) {
+        window.history.replaceState(null, null, window.location.pathname);
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session?.user) {
+        const { data } = await supabase
+          .from("users")
+          .select("role")
+          .eq("id", session.user.id)
+          .single();
+        setRole(data?.role || null);
+      }
+    };
+
+    init();
   }, []);
 
   useEffect(() => {
@@ -79,20 +99,6 @@ export default function AdminMap() {
     }
   }, [role]);
 
-  async function checkUser() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (user) {
-      const { data } = await supabase
-        .from("users")
-        .select("role")
-        .eq("id", user.id)
-        .single();
-      setRole(data?.role || null);
-    }
-  }
-
   async function fetchData() {
     const { data, error } = await supabase
       .from("parking_restrictions")
@@ -115,8 +121,8 @@ export default function AdminMap() {
     fetchData();
   }
 
-  if (!isLoaded) return <div>Loading...</div>;
-  if (!role) return <LoginScreen onLogin={checkUser} />;
+  if (!isLoaded) return <div>Loading map...</div>;
+  if (!role) return <LoginScreen onLogin={() => window.location.reload()} />;
   if (role !== "admin") return <div>Access denied. Admins only.</div>;
 
   return (
@@ -132,18 +138,10 @@ export default function AdminMap() {
               setMapCenter({ lat: item.Latitude, lng: item.Longitude });
             }}
           >
-            <p>
-              <strong>Road:</strong> {item["Road Name"]}
-            </p>
-            <p>
-              <strong>Type:</strong> {item["Restriction Type"]}
-            </p>
-            <p>
-              <strong>Zone:</strong> {item["Controlled Parking Zone"]}
-            </p>
-            <p>
-              <strong>Times:</strong> {item["Times Of Operation"]}
-            </p>
+            <p><strong>Road:</strong> {item["Road Name"]}</p>
+            <p><strong>Type:</strong> {item["Restriction Type"]}</p>
+            <p><strong>Zone:</strong> {item["Controlled Parking Zone"]}</p>
+            <p><strong>Times:</strong> {item["Times Of Operation"]}</p>
 
             {selectedItemId === item.id && (
               <div className="edit-box">
@@ -153,9 +151,7 @@ export default function AdminMap() {
                     key={field}
                     className="input-field"
                     placeholder={field}
-                    value={
-                      (formState[item.id]?.[field] ?? item[field]) ?? ""
-                    }
+                    value={(formState[item.id]?.[field] ?? item[field]) ?? ""}
                     onChange={(e) =>
                       setFormState((prev) => ({
                         ...prev,
