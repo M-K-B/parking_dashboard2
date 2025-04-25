@@ -29,7 +29,6 @@ const restrictionColors = {
   "Disabled Bays": "yellow",
   "Double Yellow Lines": "red",
   "Single Yellow Lines": "orange",
-  // Add more types if needed
 };
 
 export default function AdminMap() {
@@ -47,6 +46,7 @@ export default function AdminMap() {
   const [filter, setFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
 
+  // 1️⃣ Check auth & role
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -56,7 +56,7 @@ export default function AdminMap() {
           .select("role")
           .eq("id", session.user.id)
           .single();
-  
+
         if (error) {
           console.error("Error fetching user role:", error);
           setRole(null);
@@ -66,27 +66,23 @@ export default function AdminMap() {
       } else {
         setRole(null);
       }
-  
+
       if (typeof window !== "undefined" && window.location.hash) {
         window.history.replaceState(null, null, window.location.pathname);
       }
     };
-  
+
     checkUser();
-  
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        checkUser();
-      } else {
-        setRole(null);
-      }
+      if (session?.user) checkUser();
+      else setRole(null);
     });
-  
-    return () => {
-      subscription.unsubscribe();
-    };
+
+    return () => subscription.unsubscribe();
   }, []);
 
+  // 2️⃣ Load data on admin
   useEffect(() => {
     if (role === "admin") {
       fetchAllMapData();
@@ -94,18 +90,42 @@ export default function AdminMap() {
     }
   }, [role]);
 
+  // 3️⃣ Real-time listen for pending changes
+  useEffect(() => {
+    const subscription = supabase
+      .from("parking_restrictions")
+      .on("INSERT", payload => {
+        if (payload.new.status === "pending") {
+          setPendingData(prev => [...prev, payload.new]);
+        }
+      })
+      .on("UPDATE", payload => {
+        const updated = payload.new;
+        setPendingData(prev => {
+          if (updated.status === "pending") {
+            return prev.map(item => item.id === updated.id ? updated : item);
+          }
+          return prev.filter(item => item.id !== updated.id);
+        });
+      })
+      .on("DELETE", payload => {
+        setPendingData(prev => prev.filter(item => item.id !== payload.old.id));
+      })
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Fetch helpers
   async function fetchAllMapData() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        console.error("No access token found.");
-        return;
-      }
-
+      if (!session?.access_token) return console.error("No access token.");
       const res = await fetch("https://funny-bear-93.deno.dev/api/v1/getAllData", {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
-
       const data = await res.json();
       setAllData(data || []);
     } catch (err) {
@@ -120,11 +140,8 @@ export default function AdminMap() {
         .select("*")
         .eq("status", "pending");
 
-      if (error) {
-        console.error("Error fetching pending data", error);
-      } else {
-        setPendingData(data || []);
-      }
+      if (error) console.error("Error fetching pending data", error);
+      else setPendingData(data || []);
     } catch (err) {
       console.error("Unexpected error fetching pending data", err);
     }
@@ -133,23 +150,23 @@ export default function AdminMap() {
   async function updateData(id, changes) {
     await supabase.from("parking_restrictions").update(changes).eq("id", id);
     setSelectedItemId(null);
-    fetchPendingData();
+    // fetchPendingData(); // no longer needed for INSERT/UPDATE because of real-time
   }
 
   async function deleteData(id) {
     await supabase.from("parking_restrictions").delete().eq("id", id);
     setSelectedItemId(null);
-    fetchPendingData();
+    // fetchPendingData();
   }
 
   const filteredPending = filter
-    ? pendingData.filter((item) =>
+    ? pendingData.filter(item =>
         item.Postcode?.toLowerCase().includes(filter.toLowerCase())
       )
     : pendingData;
 
   const filteredAllData = typeFilter
-    ? allData.filter((item) => item["Restriction Type"] === typeFilter)
+    ? allData.filter(item => item["Restriction Type"] === typeFilter)
     : allData;
 
   if (!isLoaded) return <div>Loading map...</div>;
@@ -165,13 +182,13 @@ export default function AdminMap() {
           type="text"
           placeholder="Filter by postcode"
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          onChange={e => setFilter(e.target.value)}
           className="filter-input"
         />
 
         {filteredPending.length === 0 && <p>No pending records.</p>}
 
-        {filteredPending.map((item) => (
+        {filteredPending.map(item => (
           <div
             key={item.id}
             className="pending-card"
@@ -186,14 +203,14 @@ export default function AdminMap() {
 
             {selectedItemId === item.id && (
               <div className="edit-box">
-                {editableFields.map((field) => (
+                {editableFields.map(field => (
                   <input
                     key={field}
                     placeholder={field}
                     className="input-field"
                     value={(formState[item.id]?.[field] ?? item[field]) ?? ""}
-                    onChange={(e) =>
-                      setFormState((prev) => ({
+                    onChange={e =>
+                      setFormState(prev => ({
                         ...prev,
                         [item.id]: {
                           ...prev[item.id],
@@ -203,6 +220,7 @@ export default function AdminMap() {
                     }
                   />
                 ))}
+
                 {item["Image URL"] && (
                   <img
                     src={item["Image URL"]}
@@ -210,6 +228,7 @@ export default function AdminMap() {
                     className="image-preview"
                   />
                 )}
+
                 <button
                   onClick={() => {
                     const changes = {
@@ -222,7 +241,10 @@ export default function AdminMap() {
                 >
                   Approve
                 </button>
-                <button onClick={() => deleteData(item.id)}>Delete</button>
+
+                <button onClick={() => deleteData(item.id)}>
+                  Delete
+                </button>
               </div>
             )}
           </div>
@@ -233,7 +255,7 @@ export default function AdminMap() {
         {/* Filter Buttons */}
         <div style={{ padding: "10px", background: "#fff", zIndex: 10 }}>
           <button onClick={() => setTypeFilter("")}>Show All</button>
-          {[...new Set(allData.map(item => item["Restriction Type"]))].map((type) => (
+          {[...new Set(allData.map(i => i["Restriction Type"]))].map(type => (
             <button
               key={type}
               onClick={() => setTypeFilter(type)}
@@ -254,7 +276,7 @@ export default function AdminMap() {
           zoom={13}
           center={mapCenter}
         >
-          {filteredAllData.map((item) => (
+          {filteredAllData.map(item => (
             <Marker
               key={item.id}
               position={{ lat: item.Latitude, lng: item.Longitude }}
