@@ -1,7 +1,8 @@
 "use client";
 import { supabase } from "./lib/db.js";
 
-export default function LoginScreen({ onLogin }) {
+// Removed the onLogin prop as it wasn't used internally
+export default function LoginScreen() {
   const handleGoogleLogin = async () => {
     const redirectTo =
       typeof window !== "undefined"
@@ -13,9 +14,11 @@ export default function LoginScreen({ onLogin }) {
       options: { redirectTo },
     });
 
-    if (!error && typeof window !== "undefined") {
-      window.location.href = "/";
+    if (error) {
+        console.error("Google login error:", error); // Add logging for errors
     }
+    // Removed window.location.href = "/" here.
+    // The onAuthStateChange listener in AdminMap should handle the state update after redirect.
   };
 
   return (
