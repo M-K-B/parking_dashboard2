@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
@@ -53,36 +52,43 @@ export default function AdminMap() {
           .select("role")
           .eq("id", session.user.id)
           .single();
-        setRole(user?.role ?? false);
+        setRole(user?.role || null);
       } else {
-        setRole(false);
+        setRole(null);
+      }
+      if (typeof window !== "undefined" && window.location.hash) {
+        window.history.replaceState(null, null, window.location.pathname);
       }
     };
-  
+
     checkUser();
-  
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) checkUser();
-      else setRole(false);
+      if (session?.user) {
+        checkUser();
+      } else {
+        setRole(null);
+      }
     });
-  
+
     return () => subscription.unsubscribe();
   }, []);
-  
-
 
   useEffect(() => {
-    if (role === "admin") fetchData();
+    if (role === "admin") {
+      fetchData();
+    }
   }, [role]);
 
   async function fetchData() {
     try {
       const res = await fetch("https://funny-bear-93.deno.dev/api/v1/getAllData");
       const data = await res.json();
-      setAllData(data);
-      setPendingData(data.filter((d) => d.status === "pending"));
+      console.log("Fetched data:", data);
+      setAllData(data || []);
+      setPendingData((data || []).filter(item => item.status === "pending"));
     } catch (err) {
-      console.error("Failed to fetch API data", err);
+      console.error("Error fetching parking data", err);
     }
   }
 
@@ -111,11 +117,13 @@ export default function AdminMap() {
       <aside className="sidebar">
         <h2>Pending Approvals</h2>
         <input
+          type="text"
           placeholder="Filter by postcode"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           className="filter-input"
         />
+        {filtered.length === 0 && <p>No pending records.</p>}
         {filtered.map((item) => (
           <div
             key={item.id}
@@ -128,6 +136,7 @@ export default function AdminMap() {
             <p><strong>Road:</strong> {item["Road Name"]}</p>
             <p><strong>Zone:</strong> {item["Controlled Parking Zone"]}</p>
             <p><strong>Postcode:</strong> {item.Postcode}</p>
+
             {selectedItemId === item.id && (
               <div className="edit-box">
                 {editableFields.map((field) => (
@@ -147,12 +156,25 @@ export default function AdminMap() {
                     }
                   />
                 ))}
-                {item["Image URL"] && <img src={item["Image URL"]} className="image-preview" />}
-                <button onClick={() => updateData(item.id, {
-                  ...formState[item.id],
-                  status: "approved",
-                  approved_at: new Date().toISOString(),
-                })}>Approve</button>
+                {item["Image URL"] && (
+                  <img
+                    src={item["Image URL"]}
+                    alt="parking sign"
+                    className="image-preview"
+                  />
+                )}
+                <button
+                  onClick={() => {
+                    const changes = {
+                      ...formState[item.id],
+                      status: "approved",
+                      approved_at: new Date().toISOString(),
+                    };
+                    updateData(item.id, changes);
+                  }}
+                >
+                  Approve
+                </button>
                 <button onClick={() => deleteData(item.id)}>Delete</button>
               </div>
             )}
