@@ -4,7 +4,7 @@
 import { useState, useEffect } from "react";
 import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
 import dynamic from "next/dynamic";
-import { supabase } from "../lib/db";
+import { supabase } from "./lib/db.js";
 
 const LoginScreen = dynamic(() => import("./login_screen"), { ssr: false });
 

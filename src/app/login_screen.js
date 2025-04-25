@@ -1,5 +1,5 @@
 "use client";
-import { supabase } from "../lib/db";
+import { supabase } from "./lib/db.js";
 
 export default function LoginScreen({ onLogin }) {
   const handleGoogleLogin = async () => {
