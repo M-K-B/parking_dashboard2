@@ -46,7 +46,7 @@ export default function AdminMap() {
   const [filter, setFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
 
-  // 1️⃣ Check auth & role
+  // 1️⃣ Auth & role
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -56,33 +56,24 @@ export default function AdminMap() {
           .select("role")
           .eq("id", session.user.id)
           .single();
-
-        if (error) {
-          console.error("Error fetching user role:", error);
-          setRole(null);
-        } else {
-          setRole(user?.role || null);
-        }
+        setRole(error ? null : user.role);
       } else {
         setRole(null);
       }
-
+      // clear hash after OAuth
       if (typeof window !== "undefined" && window.location.hash) {
-        window.history.replaceState(null, null, window.location.pathname);
+        window.history.replaceState({}, document.title, window.location.pathname);
       }
     };
 
     checkUser();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) checkUser();
-      else setRole(null);
-    });
-
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => session?.user ? checkUser() : setRole(null)
+    );
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2️⃣ Load data on admin
+  // 2️⃣ Initial data load for admin
   useEffect(() => {
     if (role === "admin") {
       fetchAllMapData();
@@ -90,46 +81,78 @@ export default function AdminMap() {
     }
   }, [role]);
 
-  // 3️⃣ Real-time listen for pending changes
+  // 3️⃣ Real-time channel for ALL events
   useEffect(() => {
-    const subscription = supabase
-      .from("parking_restrictions")
-      .on("INSERT", payload => {
-        if (payload.new.status === "pending") {
-          setPendingData(prev => [...prev, payload.new]);
+    if (role !== "admin") return;
+
+    const channel = supabase
+      .channel("custom-all-channel")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "parking_restrictions",
+        },
+        payload => {
+          console.log("Change received!", payload);
+
+          const { eventType, new: newRow, old } = payload;
+
+          // --- update allData for map ---
+          setAllData(prev => {
+            if (eventType === "INSERT") {
+              return [...prev, newRow];
+            }
+            if (eventType === "UPDATE") {
+              return prev.map(r => (r.id === newRow.id ? newRow : r));
+            }
+            if (eventType === "DELETE") {
+              return prev.filter(r => r.id !== old.id);
+            }
+            return prev;
+          });
+
+          // --- update pendingData sidebar ---
+          setPendingData(prev => {
+            // on insert: add if pending
+            if (eventType === "INSERT" && newRow.status === "pending") {
+              return [...prev, newRow];
+            }
+            // on update: either update if still pending, or remove
+            if (eventType === "UPDATE") {
+              if (newRow.status === "pending") {
+                return prev.map(r => (r.id === newRow.id ? newRow : r));
+              }
+              return prev.filter(r => r.id !== newRow.id);
+            }
+            // on delete: remove any matching
+            if (eventType === "DELETE") {
+              return prev.filter(r => r.id !== old.id);
+            }
+            return prev;
+          });
         }
-      })
-      .on("UPDATE", payload => {
-        const updated = payload.new;
-        setPendingData(prev => {
-          if (updated.status === "pending") {
-            return prev.map(item => item.id === updated.id ? updated : item);
-          }
-          return prev.filter(item => item.id !== updated.id);
-        });
-      })
-      .on("DELETE", payload => {
-        setPendingData(prev => prev.filter(item => item.id !== payload.old.id));
-      })
+      )
       .subscribe();
 
     return () => {
-      subscription.unsubscribe();
+      channel.unsubscribe();
     };
-  }, []);
+  }, [role]);
 
-  // Fetch helpers
+  // Fetchers
   async function fetchAllMapData() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) return console.error("No access token.");
+      if (!session?.access_token) return;
       const res = await fetch("https://funny-bear-93.deno.dev/api/v1/getAllData", {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       const data = await res.json();
       setAllData(data || []);
     } catch (err) {
-      console.error("Error fetching parking data", err);
+      console.error("Error fetching map data:", err);
     }
   }
 
@@ -139,34 +162,32 @@ export default function AdminMap() {
         .from("parking_restrictions")
         .select("*")
         .eq("status", "pending");
-
-      if (error) console.error("Error fetching pending data", error);
-      else setPendingData(data || []);
+      if (error) throw error;
+      setPendingData(data || []);
     } catch (err) {
-      console.error("Unexpected error fetching pending data", err);
+      console.error("Error fetching pending data:", err);
     }
   }
 
   async function updateData(id, changes) {
     await supabase.from("parking_restrictions").update(changes).eq("id", id);
     setSelectedItemId(null);
-    // fetchPendingData(); // no longer needed for INSERT/UPDATE because of real-time
   }
 
   async function deleteData(id) {
     await supabase.from("parking_restrictions").delete().eq("id", id);
     setSelectedItemId(null);
-    // fetchPendingData();
   }
 
+  // Filters
   const filteredPending = filter
-    ? pendingData.filter(item =>
-        item.Postcode?.toLowerCase().includes(filter.toLowerCase())
+    ? pendingData.filter(i =>
+        i.Postcode?.toLowerCase().includes(filter.toLowerCase())
       )
     : pendingData;
 
   const filteredAllData = typeFilter
-    ? allData.filter(item => item["Restriction Type"] === typeFilter)
+    ? allData.filter(i => i["Restriction Type"] === typeFilter)
     : allData;
 
   if (!isLoaded) return <div>Loading map...</div>;
@@ -177,7 +198,6 @@ export default function AdminMap() {
     <div className="dashboard">
       <aside className="sidebar">
         <h2>Pending Approvals</h2>
-
         <input
           type="text"
           placeholder="Filter by postcode"
@@ -185,9 +205,7 @@ export default function AdminMap() {
           onChange={e => setFilter(e.target.value)}
           className="filter-input"
         />
-
         {filteredPending.length === 0 && <p>No pending records.</p>}
-
         {filteredPending.map(item => (
           <div
             key={item.id}
@@ -200,7 +218,6 @@ export default function AdminMap() {
             <p><strong>Road:</strong> {item["Road Name"]}</p>
             <p><strong>Zone:</strong> {item["Controlled Parking Zone"]}</p>
             <p><strong>Postcode:</strong> {item.Postcode}</p>
-
             {selectedItemId === item.id && (
               <div className="edit-box">
                 {editableFields.map(field => (
@@ -208,7 +225,7 @@ export default function AdminMap() {
                     key={field}
                     placeholder={field}
                     className="input-field"
-                    value={(formState[item.id]?.[field] ?? item[field]) ?? ""}
+                    value={(formState[item.id]?.[field] ?? item[field])}
                     onChange={e =>
                       setFormState(prev => ({
                         ...prev,
@@ -220,7 +237,6 @@ export default function AdminMap() {
                     }
                   />
                 ))}
-
                 {item["Image URL"] && (
                   <img
                     src={item["Image URL"]}
@@ -228,7 +244,6 @@ export default function AdminMap() {
                     className="image-preview"
                   />
                 )}
-
                 <button
                   onClick={() => {
                     const changes = {
@@ -241,26 +256,21 @@ export default function AdminMap() {
                 >
                   Approve
                 </button>
-
-                <button onClick={() => deleteData(item.id)}>
-                  Delete
-                </button>
+                <button onClick={() => deleteData(item.id)}>Delete</button>
               </div>
             )}
           </div>
         ))}
       </aside>
-
       <main className="map-container">
-        {/* Filter Buttons */}
-        <div style={{ padding: "10px", background: "#fff", zIndex: 10 }}>
+        <div style={{ padding: 10, background: "#fff", zIndex: 10 }}>
           <button onClick={() => setTypeFilter("")}>Show All</button>
           {[...new Set(allData.map(i => i["Restriction Type"]))].map(type => (
             <button
               key={type}
               onClick={() => setTypeFilter(type)}
               style={{
-                marginLeft: "5px",
+                marginLeft: 5,
                 backgroundColor: restrictionColors[type] || "gray",
                 color: "white",
               }}
@@ -269,8 +279,6 @@ export default function AdminMap() {
             </button>
           ))}
         </div>
-
-        {/* Map */}
         <GoogleMap
           mapContainerStyle={mapContainerStyle}
           zoom={13}
@@ -290,7 +298,6 @@ export default function AdminMap() {
               }}
             />
           ))}
-
           {selectedMarker && (
             <InfoWindow
               position={{
@@ -299,7 +306,7 @@ export default function AdminMap() {
               }}
               onCloseClick={() => setSelectedMarker(null)}
             >
-              <div style={{ maxWidth: "250px" }}>
+              <div style={{ maxWidth: 250 }}>
                 <h3>{selectedMarker["Road Name"]}</h3>
                 <p><strong>Zone:</strong> {selectedMarker["Controlled Parking Zone"]}</p>
                 <p><strong>Type:</strong> {selectedMarker["Restriction Type"]}</p>
@@ -310,7 +317,7 @@ export default function AdminMap() {
                   <img
                     src={selectedMarker["Image URL"]}
                     alt="Parking sign"
-                    style={{ width: "100%", marginTop: "5px" }}
+                    style={{ width: "100%", marginTop: 5 }}
                   />
                 )}
               </div>
